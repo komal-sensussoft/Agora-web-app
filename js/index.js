@@ -34,27 +34,145 @@ $('#Join').click(async function(e) {
     }
 });
 
+// async function join() {
+//     client.on('user-published', handleUserPublished);
+//     client.on('user-unpublished', handleUserUnPublished);
+
+
+//     [options.uid, localTracks.audioTrack, localTracks.videoTrack] = await Promise.all([
+
+//         client.join(options.appId, options.channel, options.token || null),
+//         AgoraRTC.createMicrophoneAudioTrack(),
+//         AgoraRTC.createCameraVideoTrack(),
+
+//     ]);
+
+//     localTracks.videoTrack.play('local-user');
+//     $('#local-user-stream').text(`local-user-(${options.uid})`);
+//     await client.publish(Object.values(localTracks));
+
+//     console.log('Publish successfully');
+//     showUIButtons();
+
+// }
+var localClient;
+var screenSharingClient;
+
 async function join() {
-    client.on('user-published', handleUserPublished);
-    client.on('user-unpublished', handleUserUnPublished);
+    try {
+        options.appId = $('#appId').val();
+        options.channel = $('#channel').val();
+        options.token = $('#token').val();
 
+        client.on('user-published', handleUserPublished);
+        client.on('user-unpublished', handleUserUnPublished);
 
-    [options.uid, localTracks.audioTrack, localTracks.videoTrack] = await Promise.all([
+        [options.uid, localTracks.audioTrack, localTracks.videoTrack] = await Promise.all([
+            client.join(options.appId, options.channel, options.token || null),
+            AgoraRTC.createMicrophoneAudioTrack(),
+            AgoraRTC.createCameraVideoTrack(),
+        ]);
 
-        client.join(options.appId, options.channel, options.token || null),
-        AgoraRTC.createMicrophoneAudioTrack(),
-        AgoraRTC.createCameraVideoTrack(),
+        localTracks.videoTrack.play('local-user');
+        $('#local-user-stream').text(`local-user-(${options.uid})`);
 
-    ]);
+        // Initialize local client for screen sharing
+        screenSharingClient = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
+        screenSharingClient.on('user-published', handleUserPublished);
+        screenSharingClient.on('user-unpublished', handleUserUnPublished);
 
-    localTracks.videoTrack.play('local-user');
-    $('#local-user-stream').text(`local-user-(${options.uid})`);
-    await client.publish(Object.values(localTracks));
+        // Initialize local client for camera video
+        localClient = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
 
-    console.log('Publish successfully');
-    showUIButtons();
+        // Unpublish the camera video track if it was previously published
+        if (localTracks.publishedVideoTrack) {
+            await localClient.unpublish([localTracks.publishedVideoTrack]);
+        }
 
+        // Check if screen track exists and screen sharing is active
+        if (localTracks.screenTrack && isScreenSharing) {
+            // Publish the screen-sharing track using the screenSharingClient
+            await screenSharingClient.join(options.appId, options.channel, options.token || null);
+            await screenSharingClient.publish([localTracks.screenTrack]);
+            localTracks.publishedVideoTrack = localTracks.screenTrack;
+        } else {
+            // If screen track doesn't exist or screen sharing is not active, publish the camera video track using the localClient
+            await localClient.join(options.appId, options.channel, options.token || null);
+            await localClient.publish([localTracks.videoTrack]);
+            localTracks.publishedVideoTrack = localTracks.videoTrack;
+        }
+
+        console.log('Publish successfully');
+        showUIButtons();
+    } catch (error) {
+        console.error(error);
+    } finally {
+        $('#Leave').attr('disabled', false);
+        $('#Join').attr('disabled', true);
+    }
 }
+
+// Add a function to leave the channel for each client
+function leaveChannel(client) {
+    return new Promise(async (resolve) => {
+        if (client) {
+            for (trackName in localTracks) {
+                var track = localTracks[trackName];
+                if (track) {
+                    track.stop();
+                    track.close();
+                    localTracks[trackName] = undefined;
+                }
+            }
+
+            await client.leave();
+            resolve();
+        }
+    });
+}
+
+$('#Leave').click(async function (e) {
+    await leaveChannel(localClient);
+    await leaveChannel(screenSharingClient);
+    $('#remote-user').html('');
+    $('#Leave').attr('disabled', true);
+    $('#Join').attr('disabled', false);
+    $('#local-user-stream').text('');
+    console.log('Leave Successfully');
+    hideUIButtons();
+});
+
+
+
+// Add a function to leave the channel for each client
+function leaveChannel(client) {
+    return new Promise(async (resolve) => {
+        if (client) {
+            for (trackName in localTracks) {
+                var track = localTracks[trackName];
+                if (track) {
+                    track.stop();
+                    track.close();
+                    localTracks[trackName] = undefined;
+                }
+            }
+
+            await client.leave();
+            resolve();
+        }
+    });
+}
+
+$('#Leave').click(async function (e) {
+    await leaveChannel(localClient);
+    await leaveChannel(screenSharingClient);
+    $('#remote-user').html('');
+    $('#Leave').attr('disabled', true);
+    $('#Join').attr('disabled', false);
+    $('#local-user-stream').text('');
+    console.log('Leave Successfully');
+    hideUIButtons();
+});
 
 
 
@@ -184,6 +302,7 @@ async function subscribe(user, mediaType) {
     } else if (mediaType === 'audio') {
         user.audioTrack.play();
     } else if (mediaType === 'screen') {
+        console.log("screen");
         // Handle screen sharing subscription
         const screenPlayer = $(`
            <div id="screen-wrapper-${id}">
