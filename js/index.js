@@ -54,10 +54,6 @@ async function join() {
     console.log('Publish successfully');
     showUIButtons();
 
-
-
-
-
 }
 
 
@@ -121,4 +117,82 @@ function handleUserUnPublished(user) {
     const id = user.uid;
     delete remoteUsers[id];
     $(`player-wrapper-${id}`).remove();
+}
+
+
+
+
+
+
+
+
+
+
+// Add a global variable to track the screen sharing state
+var isScreenSharing = false;
+
+// Add an event listener for the screen sharing button
+$('#ShareScreen').click(async function (e) {
+    try {
+        if (!isScreenSharing) {
+            // Start screen sharing
+            const screenTrack = await AgoraRTC.createScreenVideoTrack();
+            localTracks.screenTrack = screenTrack;
+
+            // Publish the screen sharing track
+            await client.publish([screenTrack]);
+            console.log('Screen sharing started');
+
+            // Update UI
+            isScreenSharing = true;
+        } else {
+            // Stop screen sharing
+            const screenTrack = localTracks.screenTrack;
+            if (screenTrack) {
+                screenTrack.stop();
+                screenTrack.close();
+                localTracks.screenTrack = undefined;
+
+                // Unpublish the screen sharing track
+                await client.unpublish([screenTrack]);
+                console.log('Screen sharing stopped');
+
+                // Update UI
+                isScreenSharing = false;
+            }
+        }
+    } catch (error) {
+        console.error('Error during screen sharing:', error);
+    }
+});
+
+async function subscribe(user, mediaType) {
+    const id = user.uid;
+    await client.subscribe(user, mediaType);
+    console.log('Subscribed successfully');
+
+    if (mediaType === 'video') {
+        const player = $(`
+           <div id="player-wrapper-${id}">
+               <p class="player-name">remote-player-(${id})</p>
+               <div id="player-${id}" class="player"></div>
+           </div> 
+        `);
+
+        $('#remote-user').append(player);
+        user.videoTrack.play(`player-${id}`);
+    } else if (mediaType === 'audio') {
+        user.audioTrack.play();
+    } else if (mediaType === 'screen') {
+        // Handle screen sharing subscription
+        const screenPlayer = $(`
+           <div id="screen-wrapper-${id}">
+               <p class="player-name">screen-sharing-(${id})</p>
+               <div id="screen-${id}" class="player"></div>
+           </div> 
+        `);
+
+        $('#remote-user').append(screenPlayer);
+        user.screenTrack.play(`screen-${id}`);
+    }
 }
